@@ -1,0 +1,69 @@
+BirdCLEF+ 2026 — Kết Quả Phân Tích
+Ngày: 2026-03-15
+========================================
+
+1. DATASET STATS
+----------------
+Train CSV       : 35,549 clips
+Taxonomy        : 234 loài
+Files on disk   : 35,549 / 35,549 (đầy đủ)
+
+Phân loại theo taxonomy:
+  Aves          162 loài
+  Amphibia       35 loài
+  Insecta        28 loài
+  Mammalia        8 loài
+  Reptilia        1 loài
+
+Rating distribution:
+  0.0   → 12,849 clips (36.1%)  ← chất lượng thấp
+  0.5   →     22 clips
+  1.0   →    147 clips
+  1.5   →    120 clips
+  2.0   →    598 clips
+  2.5   →    518 clips
+  3.0   →  2,738 clips
+  3.5   →  1,509 clips
+  4.0   →  8,018 clips
+  4.5   →  2,185 clips
+  5.0   →  6,845 clips (19.3%)
+
+Sau khi lọc MIN_RATING >= 3.0: ~21,295 clips còn lại
+
+Samples per species:
+  Min    : 1 clip
+  Max    : 499 clips
+  Median : 125 clips
+  → Class imbalance khá cao, cần pos_weight trong loss
+
+
+2. MODEL ARCHITECTURE (EfficientNet-B0)
+----------------------------------------
+Backbone       : efficientnet_b0 (timm)
+Input shape    : [B, 1, 128, 500]  (batch, channel, mels, time)
+Output shape   : [B, 234]          (234 classes)
+Feature dim    : 1280
+Total params   : 4.78M
+Trainable      : 4.78M
+Model size     : ~19 MB (FP32)
+
+
+3. PIPELINE STATUS
+-------------------
+[OK] Data path    : C:\Users\tranv\Downloads\birdclef_baseline\birdclef-2026
+[OK] Files        : 35,549 clips present on disk
+[OK] Taxonomy     : 234 classes loaded
+[OK] Model        : Forward pass OK (CPU)
+[OK] PyTorch      : 2.6.0+cu124
+[OK] CUDA         : RTX 3050 Ti, 4GB VRAM, CUDA 12.9
+[!!] HuggingFace  : Bị block — cần tải pretrained weights thủ công
+
+
+4. GHI CHÚ / KHUYẾN NGHỊ
+--------------------------
+- Dùng MIN_RATING=3.0 để loại ~36% clip chất lượng kém
+- pos_weight đã được tính tự động trong train.py để xử lý imbalance
+- PRETRAINED=False nếu không tải được HuggingFace
+- BATCH_SIZE=16, GRAD_ACCUM=2 → effective batch=32, an toàn với 4GB VRAM
+- Nếu OOM: giảm BATCH_SIZE=8 trong config.py
+- Nếu RAM cạn: giảm NUM_WORKERS=0 trong config.py

@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(conda --version)",
+      "Bash(pip show:*)",
+      "Bash(pip list:*)",
+      "Bash(python -c \"import torch; print\\(''torch:'', torch.__version__\\)\")",
+      "Bash(nvidia-smi)",
+      "Bash(pip install:*)",
+      "Bash(python dataset.py)",
+      "Bash(python explore.py --skip-plots)",
+      "Bash(python -c \":*)",
+      "Bash(git lfs:*)",
+      "Bash(del \"C:\\\\Users\\\\tranv\\\\Downloads\\\\birdclef_baseline\\\\.git\\\\index.lock\")"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\tranv\\Downloads\\birdclef_baseline\\.git"
+    ]
+  }
+}

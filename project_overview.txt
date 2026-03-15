@@ -1,0 +1,294 @@
+================================================================================
+  BirdCLEF+ 2026 — Tổng Quan Toàn Dự Án
+  Ngày tạo : 2026-03-15
+  Máy       : Windows 11 | RTX 3050 Ti 4GB | CUDA 12.9 | Python 3.13
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. BÀI TOÁN (Competition Overview)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━loa━━━━━━━━━━━━━━
+
+Tên       : BirdCLEF+ 2026
+Platform  : Kaggle
+Task      : Multi-label sound event detection (SED) trên soundscape recordings
+Input     : File âm thanh soundscape (OGG), chia chunk 5 giây
+Output    : Xác suất xuất hiện của từng loài trong mỗi chunk 5s
+Metric    : ROC-AUC (macro, bỏ qua classes không có positive trong batch)
+
+Đặc điểm nổi bật so với BirdCLEF trước:
+  - Mở rộng ngoài chim (Aves): thêm Amphibia, Insecta, Mammalia, Reptilia
+  - Data từ iNaturalist (không phải Xeno-canto)
+  - 234 loài thay vì ~180 như 2024/2025
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CẤU TRÚC THƯ MỤC
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+birdclef_baseline/
+├── config.py              ← Toàn bộ hyperparameters & paths
+├── dataset.py             ← Audio loading, mel-spec, augmentation, DataLoader
+├── model.py               ← EfficientNet-B0 + classification head + loss
+├── train.py               ← Training loop (AMP + Mixup + Early stopping)
+├── infer.py               ← Inference soundscape → submission.csv
+├── explore.py             ← EDA nhẹ, không cần train
+├── requirements.txt       ← Dependencies
+├── analysis_results.txt   ← Kết quả phân tích pipeline check
+├── project_overview.txt   ← File này
+└── birdclef-2026/         ← Data folder
+    ├── train.csv              (35,549 rows)
+    ├── taxonomy.csv           (234 loài)
+    ├── sample_submission.csv  (template)
+    ├── recording_location.txt
+    ├── train_audio/           (35,549 file OGG)
+    ├── train_soundscapes/     (4,961 file OGG)
+    └── test_soundscapes/      (placeholder — chỉ có khi chấm trên Kaggle)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. PHÂN TÍCH DỮ LIỆU
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── 3.1 Tổng quan ──────────────────────────────────────────────────────────────
+
+  Train clips     : 35,549
+  Taxonomy        : 234 loài
+  Train soundscape: 4,961 file (dùng để validate/finetune)
+  Files on disk   : 35,549 / 35,549 (100% đầy đủ)
+
+── 3.2 Phân bố theo taxonomy ──────────────────────────────────────────────────
+
+  Loài trong taxonomy:
+    Aves          162 loài (chim)
+    Amphibia       35 loài (ếch, nhái)
+    Insecta        28 loài (côn trùng)
+    Mammalia        8 loài (thú)
+    Reptilia        1 loài (bò sát)
+
+  Clips trong train.csv:
+    Aves          34,799 clips (97.9%)
+    Amphibia         451 clips ( 1.3%)
+    Insecta          199 clips ( 0.6%)
+    Mammalia          99 clips ( 0.3%)
+    Reptilia           1 clip  ( 0.0%)
+
+  → Aves chiếm áp đảo. Insecta/Mammalia/Reptilia rất ít data — khó train.
+
+── 3.3 Phân bố rating (chất lượng clip) ───────────────────────────────────────
+
+  Rating 0.0  : 12,849 clips (36.1%)  ← chất lượng kém, nên loại
+  Rating 0.5  :     22 clips
+  Rating 1.0  :    147 clips
+  Rating 1.5  :    120 clips
+  Rating 2.0  :    598 clips
+  Rating 2.5  :    518 clips
+  Rating 3.0  :  2,738 clips
+  Rating 3.5  :  1,509 clips
+  Rating 4.0  :  8,018 clips (22.6%)
+  Rating 4.5  :  2,185 clips
+  Rating 5.0  :  6,845 clips (19.3%)
+
+  Sau MIN_RATING=3.0 : 21,295 clips còn lại (59.9%)
+
+── 3.4 Phân bố số clip per loài ────────────────────────────────────────────────
+
+  Min     :   1 clip
+  Max     : 499 clips
+  Median  : 125 clips
+  → Imbalance nặng → cần pos_weight trong loss function
+
+── 3.5 Top 10 loài nhiều clip nhất ────────────────────────────────────────────
+
+  Rufous-bellied Thrush               499 clips  [Aves]
+  Bananaquit                          498 clips  [Aves]
+  Ferruginous Pygmy Owl               497 clips  [Aves]
+  Southern Lapwing                    497 clips  [Aves]
+  House Sparrow                       496 clips  [Aves]
+  Collared Forest-Falcon              495 clips  [Aves]
+  Osprey                              495 clips  [Aves]
+  Social Flycatcher                   494 clips  [Aves]
+  Pauraque                            493 clips  [Aves]
+  Yellow-olive Flatbill               493 clips  [Aves]
+
+── 3.6 Top 10 loài ít clip nhất ────────────────────────────────────────────────
+
+  Yungas de la Paz Poison Frog          3 clips  [Amphibia]
+  Black-tailed Marmoset                 3 clips  [Mammalia]
+  Spot-tailed Nightjar                  3 clips  [Aves]
+  Feral Horse                           2 clips  [Mammalia]
+  Mato Grosso Snouted Tree Frog         2 clips  [Amphibia]
+  Cei's White-lipped Frog               2 clips  [Amphibia]
+  Southern Spectacled Caiman            1 clip   [Reptilia]
+  Central Dwarf Frog                    1 clip   [Amphibia]
+  Waxy Monkey Tree Frog                 1 clip   [Amphibia]
+  Hooded Capuchin                       1 clip   [Mammalia]
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. PIPELINE KỸ THUẬT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── 4.1 Audio Preprocessing ─────────────────────────────────────────────────────
+
+  Sample rate  : 32,000 Hz
+  Chunk length : 5 giây = 160,000 samples
+  Pad strategy : tile (lặp lại) nếu clip ngắn hơn 5s
+  Crop strategy: random crop trong training
+
+── 4.2 Mel Spectrogram ─────────────────────────────────────────────────────────
+
+  n_fft       : 1024
+  hop_length  : 320    → ~100 frames/giây
+  n_mels      : 128
+  fmin        : 20 Hz
+  fmax        : 16,000 Hz
+  Output shape: (1, 128, 500)  — 1 channel, 128 mel bins, 500 time steps
+  Backend     : librosa (ưu tiên) hoặc numpy fallback
+
+── 4.3 Model Architecture ──────────────────────────────────────────────────────
+
+  Backbone    : EfficientNet-B0 (timm)
+  Input       : (B, 1, 128, 500)
+  Feature dim : 1280 (sau GlobalAvgPool)
+  Head        : Dropout(0.3) → Linear(1280→512) → ReLU → Dropout(0.15) → Linear(512→234)
+  Output      : (B, 234)  raw logits
+  Loss        : BCEWithLogitsLoss + pos_weight (class imbalance)
+  Total params: 4.78M
+  Model size  : ~19 MB (FP32)
+
+── 4.4 Training Config ─────────────────────────────────────────────────────────
+
+  Epochs        : 20 (early stopping patience=5)
+  Batch size    : 16 (effective 32 với grad_accum=2)
+  Optimizer     : AdamW (lr=1e-3, weight_decay=1e-4)
+  Scheduler     : Cosine Annealing + 2 epoch warmup (min_lr=1e-6)
+  AMP           : Mixed Precision FP16 (tiết kiệm ~50% VRAM)
+  Grad clip     : 1.0
+  Augmentation  : Mixup (alpha=0.5, p=0.5) + SpecAugment (time=20, freq=10)
+  CV            : StratifiedKFold 5-fold theo primary_label
+
+── 4.5 Inference ────────────────────────────────────────────────────────────────
+
+  Input        : soundscape OGG file
+  Chunking     : non-overlapping 5s windows
+  TTA          : original + time-flip (average 2 predictions)
+  Output       : submission.csv (row_id × 234 species probabilities)
+  row_id format: {filename}_{end_second}
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. VRAM BUDGET (RTX 3050 Ti = 4 GB)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  EfficientNet-B0 weights  : ~0.5 GB
+  Batch 16 mel-spec (FP16) : ~0.8 GB
+  Gradients (FP16)         : ~0.5 GB
+  Optimizer states         : ~0.5 GB
+  Buffer                   : ~0.7 GB
+  ─────────────────────────────────
+  Tổng ước tính            : ~3.0 GB  ✓ an toàn
+
+  Nếu OOM → BATCH_SIZE = 8 trong config.py
+  Nếu RAM cạn → NUM_WORKERS = 0 trong config.py
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MÔITRƯỜNG & PACKAGES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Python    : 3.13.12
+  PyTorch   : 2.6.0+cu124
+  CUDA      : 12.9 (driver 576.52)
+  GPU       : NVIDIA RTX 3050 Ti (4096 MB VRAM)
+
+  Packages đã cài:
+    torch 2.6.0+cu124      timm 1.0.25
+    librosa 0.11.0         soundfile 0.13.1
+    scikit-learn 1.8.0     pandas 3.0.1
+    numpy 2.3.5            matplotlib 3.10.8
+    seaborn 0.13.2         audiomentations 0.43.1
+    tqdm (included)
+
+  Vấn đề: HuggingFace bị block → pretrained weights không tự tải được
+  Giải pháp: PRETRAINED=False hoặc tải thủ công (xem mục 8)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. HƯỚNG DẪN CHẠY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # Phân tích nhẹ (không cần GPU, không train)
+  python explore.py --skip-plots    ← chỉ in stats
+  python explore.py                 ← stats + visualize spectrograms
+
+  # Test pipeline
+  python dataset.py                 ← Expect: Mel shape: (1, 128, 500)
+  python model.py                   ← Expect: Output: torch.Size([2, 234])
+
+  # Train
+  python train.py                   ← Fold 0 mặc định
+  python train.py --fold 1          ← Fold cụ thể
+
+  # Inference
+  python infer.py --ckpt output/best_fold0.pt
+
+  Checkpoint lưu tại : output/best_fold0.pt
+  Training log       : output/history_fold0.csv
+  Submission         : output/submission.csv
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. XỬ LÝ VẤN ĐỀ HUGGINGFACE BỊ BLOCK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Cách 1: Tắt pretrained (không tận dụng ImageNet)
+    → Sửa config.py: PRETRAINED = False
+
+  Cách 2: Tải thủ công qua VPN
+    → Bật VPN, chạy lại python train.py lần đầu (tự cache vào ~/.cache/huggingface)
+    → Các lần sau không cần VPN nữa
+
+  Cách 3: Tải file .safetensors từ máy khác
+    → Copy vào: C:\Users\tranv\.cache\huggingface\hub\models--timm--efficientnet_b0.ra_in1k\
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. THỜI GIAN TRAIN ƯỚC TÍNH (RTX 3050 Ti)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Sau filter rating>=3.0: ~21,295 clips
+  Fold 0 train set       : ~17,036 clips
+  Batch size             : 16 → ~1,065 steps/epoch
+
+  Ước tính:
+    ~25-35 phút/epoch
+    20 epochs (max) → ~8-12 giờ tổng
+    Early stopping thường dừng ở epoch 10-15 → ~4-8 giờ
+
+  Full data (không filter): ~35,549 clips → ~60-90 phút/epoch
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. NEXT STEPS — NÂNG CAO ĐIỂM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Mức 1 — Dễ, cải thiện nhỏ:
+    [ ] Tăng lên EfficientNet-B2 nếu VRAM còn dư
+    [ ] Dùng train_soundscapes để validate thay vì audio clips
+    [ ] Tăng DURATION từ 5s lên 10s
+
+  Mức 2 — Cải thiện đáng kể:
+    [ ] Thay backbone = EfficientAT (pretrained AudioSet) — gap lớn nhất
+    [ ] Thêm overlapping chunks (stride 2.5s thay vì 5s)
+    [ ] Pseudo-labeling trên train_soundscapes
+
+  Mức 3 — Cạnh tranh top:
+    [ ] Ensemble 3-5 folds
+    [ ] Ensemble nhiều backbone (EfficientNet + EfficientAT + BirdNET)
+    [ ] Post-processing: threshold tuning per class
+    [ ] Test-time augmentation: thêm pitch shift, time stretch
+
+================================================================================
+  END OF DOCUMENT
+================================================================================
